@@ -24,8 +24,8 @@ The focus is on building, diagnosing, and interpreting statistical models using 
 
 ## Files
 
-- `STA504_Final copy.Rmd`: Full analysis with code and explanations
-- `STA504_Final copy.pdf`: Final report output
+- `STA504_Final_code.Rmd`: Full analysis with code and explanations
+- `STA504_Final_knitted.pdf`: Final report output
 
 ## Tools
 
