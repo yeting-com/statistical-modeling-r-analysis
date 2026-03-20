@@ -1,0 +1,279 @@
+---
+title: "STA504_Final"
+author: "Yeting Wu"
+date: "2025-03-20"
+output: pdf_document
+---
+
+# Problem 1
+```{r}
+library(ggplot2)
+load("cropyields.Rdata")
+load("rivernitrogen.Rdata")
+```
+
+## (a)
+```{r}
+model1<- lm(yields ~ nitrogen * phosphate, data = cropyields)
+summary(model1)
+anova(model1)
+```
+Based on the ANOVA results:
+
+- **Phosphate** has a significant effect on maize yield ($p = 0.00332$, **$p < 0.01$**), indicating that different phosphate levels impact crop yield.
+- **Nitrogen** does not show a statistically significant main effect ($p = 0.12004$, **$p > 0.05$**), suggesting it may not directly influence yield.
+- The **interaction between nitrogen and phosphate** is significant ($p = 0.01955$, **$p < 0.05$**), implying that the effect of one chemical depends on the level of the other.
+
+Thus, while nitrogen alone does not have a strong effect, the significant interaction suggests that the combination of nitrogen and phosphate plays a crucial role in determining maize yield.
+
+```{r}
+cropyields$nitrogen <- factor(cropyields$nitrogen, levels = c("low", "medium", "high"))
+interaction.plot(
+  x.factor = cropyields$nitrogen, 
+  trace.factor = cropyields$phosphate, 
+  response = cropyields$yields,
+  col = c("blue", "red"), 
+  lty = 1, lwd = 2,
+  xlab = "Nitrogen Level", 
+  ylab = "Yield", 
+  legend = TRUE, 
+  trace.label = "Phosphate Level"
+)
+```
+Therefore, we know
+
+- **Nitrogen and phosphate levels influence crop yield.**
+- **For high phosphate levels (blue line):** Yield **increases sharply** from low to medium nitrogen, then slightly decreases at high nitrogen.
+- **For low phosphate levels (red line):** Yield **initially decreases**, then increases slightly at high nitrogen.
+- **The non-parallel trend of the lines suggests a significant interaction effect** between nitrogen and phosphate on yield.
+
+## (b)
+### Residual Diagnostics
+```{r}
+par(mfrow = c(1, 2))
+plot(model1, which = 1)
+plot(model1, which = 2)
+```
+
+- **Residuals vs Fitted Plot**: Shows heteroscedasticity and notable outliers (e.g., 13, 62, 65), indicating possible model violations.
+- **Q-Q Plot**: Residuals deviate from normality, especially in the right tail, suggesting non-normal errors.
+- **Therefore**, a transformation (e.g., Box-Cox) is needed to stabilize variance and improve normality.
+
+### Box-Cox Transformation
+```{r}
+library(MASS)  
+boxcox_result <- boxcox(model1, lambda = seq(-2, 2, by = 0.1))
+lambda_opt <- boxcox_result$x[which.max(boxcox_result$y)]
+```
+
+- **Lambda Selection**: The Box-Cox plot suggests an optimal $\lambda$ near the point where log-likelihood is maximized.
+- **Transformation Need**: Since $\lambda$ deviates from 1, a transformation is required to stabilize variance and improve normality.
+- **Therefore**, apply the optimal $\lambda$ to transform the response variable for better model assumptions.
+
+### Transformed Model
+```{r}
+cropyields$yields_transformed <- ifelse(lambda_opt == 0, 
+                                        log(cropyields$yields), 
+                                        (cropyields$yields^lambda_opt - 1) / lambda_opt)
+model_bc <- lm(yields_transformed ~ nitrogen * phosphate, data = cropyields)
+summary(model_bc)
+anova(model_bc)
+```
+
+- **Residuals**: Near-zero residuals suggest overfitting or numerical instability.
+- **Coefficient Estimates**: Some estimates are nearly zero with extreme precision, indicating potential multicollinearity or transformation issues.
+- **ANOVA Warning**: The model fit is nearly perfect, making F-tests unreliable.
+- **Therefore**, the transformation may not be appropriate; reconsider the Box-Cox transformation or alternative approaches.
+
+### Residual Diagnostics
+```{r}
+par(mfrow = c(1, 2))
+plot(model_bc, which = 1) 
+plot(model_bc, which = 2) 
+```
+
+- **Residuals vs Fitted**: Residuals are near zero, suggesting an overfitted model with almost no variation.
+- **Q-Q Plot**: Residuals deviate significantly from normality, indicating poor model validity.
+- **Therefore**, the Box-Cox transformation might have been excessive, leading to numerical instability.
+
+## (c)
+We are testing the difference in mean yields between conditions:
+
+- **Null Hypothesis** (\(H_0\)): The mean yield difference between low and high levels of both chemicals is **0**.
+- **Alternative Hypothesis** (\(H_1\)): The mean yield difference is **at least 1 unit**.
+
+The test is conducted at a **significance level of** \( \alpha = 0.05 \).
+
+The power of a test is given by:
+
+\[
+\text{Power} = P(\text{Reject } H_0 | H_1 \text{ is true})
+\]
+
+Power depends on:
+
+- **Effect size** (\(\delta = 1\)) – minimum detectable difference.
+- **Sample size** (\( n_{i,j} \)) – number of observations per group.
+- **Significance level** (\(\alpha = 0.05\)).
+- **Standard deviation** (\(\sigma\)) estimated from pilot study residuals.
+
+```{r}
+library(pwr)
+
+effect_size <- 1  
+alpha <- 0.05  
+
+sd_estimate <- max(sd(residuals(model_bc)), 1) 
+
+sample_sizes <- seq(5, 50, by = 5)
+
+power_values <- sapply(sample_sizes, function(n) {
+  pwr.t.test(d = effect_size / sd_estimate, n = n, sig.level = alpha, 
+             type = "two.sample", alternative = "two.sided")$power
+})
+
+plot(sample_sizes, power_values, type = "b", col = "blue", pch = 16,
+     xlab = "Sample Size per Group (n_{i,j})", ylab = "Power",
+     main = "Power Curve for Detecting Yield Differences")
+abline(h = 0.8, col = "red", lty = 2)
+
+required_n <- tryCatch({
+  pwr.t.test(d = effect_size / sd_estimate, power = 0.8, sig.level = alpha, 
+             type = "two.sample", alternative = "two.sided")$n
+}, error = function(e) NA)
+
+cat("Required sample size per group: ", ceiling(required_n))
+```
+A power analysis determined the required sample size for detecting a mean yield difference of at least \textbf{1 unit}. The power curve confirmed that statistical power increases with sample size.
+
+Based on the analysis, a sample size of \textbf{17 per group} is needed to achieve \textbf{80\% power} at a significance level of $\alpha = 0.05$. This ensures a high probability of detecting a true effect while maintaining controlled error rates.
+
+Thus, for a balanced experiment, at least $n_{i,j} = 17$ observations per nitrogen-phosphate combination should be collected to ensure sufficient statistical power.
+
+# Problem 2
+The study aims to analyze the influence of **human population density, deposition, nitrate precipitation, and hydrological factors** on **nitrate concentration (NO3) and nitrate export** in rivers. We investigate whether pollution is driven **directly** by human activity or **indirectly** through atmospheric processes.
+
+```{r}
+load("rivernitrogen.Rdata")
+str(rivernitrogen)
+summary(rivernitrogen[, c("NO3","Export", "Discharge","Runoff","Area","Density","Dep","NPrec","Prec")])
+cor(rivernitrogen[, c("NO3","Export", "Discharge","Runoff","Area","Density","Dep","NPrec","Prec")])
+pairs(rivernitrogen[, c("NO3","Export", "Discharge","Runoff","Area","Density","Dep","NPrec","Prec")])
+```
+
+```{r}
+library(ggplot2)
+
+par(mfrow = c(1, 2))
+
+boxplot(rivernitrogen$NO3, main = "Distribution of NO3", ylab = "NO3")
+boxplot(rivernitrogen$Export, main = "Distribution of Nitrate Export", ylab = "Export")
+
+boxplot(log(rivernitrogen$NO3), main = "Log-Transformed NO3", ylab = "log(NO3)")
+boxplot(log(rivernitrogen$Export), main = "Log-Transformed Nitrate Export", ylab = "log(Export)")
+```
+
+```{r}
+par(mfrow = c(2, 2))
+
+hist(rivernitrogen$NO3, main = "Histogram of NO3", xlab = "NO3", col = "blue", border = "black")
+hist(rivernitrogen$Export, main = "Histogram of Nitrate Export", xlab = "Export", col = "green", border = "black")
+
+hist(log(rivernitrogen$NO3), main = "Histogram of Log(NO3)", xlab = "Log(NO3)", col = "blue", border = "black")
+hist(log(rivernitrogen$Export), main = "Histogram of Log(Export)", xlab = "Log(Export)", col = "green", border = "black")
+```
+The histograms indicate that both **NO3** and **Nitrate Export** exhibit **right-skewed distributions**, suggesting non-normality. 
+Applying a **log transformation** results in a more **symmetrical and approximately normal distribution**, improving statistical assumptions for analysis.
+
+Thus, a **log transformation is appropriate** for normalizing these variables before modeling.
+
+## **Statistical Modeling**
+```{r}
+# Linear regression model for NO3
+model_NO3 <- lm(NO3 ~ Discharge + Runoff + Prec + Area + Dep + NPrec + Density, data = rivernitrogen)
+summary(model_NO3)
+anova(model_NO3)
+par(mfrow=c(1, 2)) 
+plot(model_NO3, which=1) 
+plot(model_NO3, which=2)
+```
+The residuals vs. fitted plot indicates a non-random pattern, suggesting potential model misspecification or non-constant variance. The Q-Q plot shows deviations from normality, particularly in the upper tail, indicating that the residuals are not normally distributed. These issues suggest that model assumptions may not be fully satisfied, and log-transformations may be necessary.
+
+```{r}
+# The log-transformed model for NO3
+rivernitrogen$log_NO3 <- log(rivernitrogen$NO3)
+model_log_NO3 <- lm(log_NO3 ~ Discharge + Runoff + Prec + Area + Dep + NPrec + Density, data = rivernitrogen)
+summary(model_log_NO3)
+anova(model_log_NO3)
+
+par(mfrow=c(1, 2))  
+plot(model_log_NO3, which=1)
+plot(model_log_NO3, which=2)
+```
+The log-transformed model for NO3 improves normality and variance homogeneity. The Q-Q plot indicates residuals align more closely with the normal distribution, reducing skewness. The residuals vs. fitted plot shows less heteroscedasticity compared to the untransformed model, though some curvature remains.
+
+```{r}
+library(MASS)
+model_NO3_step <- step(lm(log(NO3) ~ log(Density) + log(Dep) + log(NPrec) + log(Runoff) + log(Discharge) + log(Area) + log(Prec), data = rivernitrogen), direction = "both")
+```
+
+```{r}
+model_Export_step <- step(lm(log(Export) ~ log(Density) + log(Dep) + log(NPrec) + log(Runoff) + log(Discharge) + log(Area) + log(Prec), data = rivernitrogen), direction = "both")
+```
+
+```{r}
+# Stepwise Model Selection for NO3
+model_NO3_forward <- step(lm(log(NO3) ~ 1, data = rivernitrogen),
+                          scope = ~ log(Density) + log(Dep) + log(NPrec) + log(Runoff) + log(Discharge) + log(Area) + log(Prec),
+                          direction = "forward")
+
+model_NO3_backward <- step(lm(log(NO3) ~ log(Density) + log(Dep) + log(NPrec) + log(Runoff) + log(Discharge) + log(Area) + log(Prec), data = rivernitrogen), direction = "backward")
+```
+
+```{r}
+# Linear Model for Nitrate Export
+model_Export <- lm(Export ~ Discharge + Runoff + Prec + Area + Dep + NPrec + Density, data = rivernitrogen)
+summary(model_Export)
+anova(model_Export)
+```
+
+```{r}
+# Log-Transformed Model for Nitrate Export
+model_log_Export <- lm(log(Export) ~ Discharge + Runoff + Prec + Area + Dep + NPrec + Density, data = rivernitrogen)
+summary(model_log_Export)
+anova(model_log_Export)
+
+par(mfrow=c(1, 2))  
+plot(model_log_Export, which=1)  
+plot(model_log_Export, which=2)
+```
+```{r}
+# Stepwise Model Selection for Nitrate Export
+model_Export_forward <- step(lm(log(Export) ~ 1, data = rivernitrogen), scope = ~ log(Density) + log(Dep) + log(NPrec) + log(Runoff) + log(Discharge) + log(Area) + log(Prec), direction = "forward")
+
+model_Export_backward <- step(lm(log(Export) ~ log(Density) + log(Dep) + log(NPrec) + log(Runoff) + log(Discharge) + log(Area) + log(Prec), data = rivernitrogen), direction = "backward")
+```
+
+## **Final Model Selection**
+```{r}
+# Model for NO3 
+final_model_NO3 <- lm(log(NO3) ~ log(Density) + log(NPrec) + log(Discharge), data = rivernitrogen)
+summary(final_model_NO3)
+anova(final_model_NO3)
+```
+
+```{r}
+# Model for Nitrate Export 
+final_model_Export <- lm(log(Export) ~ log(Density) + log(Runoff) + log(NPrec), data = rivernitrogen)
+summary(final_model_Export)
+anova(final_model_Export)
+```
+
+### Conclusion
+
+The final models for **NO3** and **Nitrate Export** were selected based on stepwise regression, optimizing AIC. 
+
+- For **NO3**, the significant predictors are **Density** (\( p < 0.001 \)) and **NPrec** (\( p < 0.05 \)), suggesting that human population density and nitrate precipitation are key factors influencing nitrate concentration in rivers. **Discharge** was not significant (\( p > 0.05 \)).
+- For **Nitrate Export**, significant predictors include **Density** (\( p < 0.001 \)), **Runoff** (\( p < 0.001 \)), and **NPrec** (\( p < 0.05 \)), indicating that human population density, runoff, and nitrate precipitation drive nitrate export in rivers.
+
+Both models exhibit strong explanatory power, with **\( R^2 \) values of 0.776 and 0.877**, respectively, suggesting a good fit. The results indicate that human activity, particularly population density, and hydrological factors (runoff and nitrate precipitation) play crucial roles in riverine nitrate pollution.
